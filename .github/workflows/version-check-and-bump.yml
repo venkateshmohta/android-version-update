@@ -43,13 +43,26 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Get version from main BEFORE merge
+      - name: Get version from main branch (before merge)
         id: main-version
         run: |
-          # Fetch version.txt directly from main branch BEFORE this merge
+          # Get the parent commit of the merge (which is the last commit on main before merge)
+          # First, get the merge commit
+          MERGE_SHA="${{ github.event.pull_request.merge_commit_sha }}"
+          
+          echo "Merge commit: $MERGE_SHA"
+          
+          # Get the first parent (main branch before merge)
+          MAIN_PARENT=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/commits/$MERGE_SHA" \
+            | jq -r '.parents[0].sha')
+          
+          echo "Main branch parent commit: $MAIN_PARENT"
+          
+          # Now get version.txt from that commit
           VERSION=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            "https://api.github.com/repos/${{ github.repository }}/contents/version.txt?ref=${{ github.event.pull_request.base.sha }}" \
-            | jq -r '.content' | base64 -d | tr -d ' \r\n')
+            "https://api.github.com/repos/${{ github.repository }}/contents/version.txt?ref=$MAIN_PARENT" \
+            | jq -r '.content' | base64 -d | head -1 | tr -d ' \r\n')
           
           echo "Main branch version (before merge): $VERSION"
           echo "version=$VERSION" >> $GITHUB_OUTPUT
@@ -95,15 +108,19 @@ jobs:
         if: steps.bump.outputs.type != 'none'
         id: new
         run: |
-          # Use version from main BEFORE merge (not the overwritten one)
           VERSION="${{ steps.main-version.outputs.version }}"
           
-          echo "Starting from version: $VERSION"
+          echo "Starting from main branch version: $VERSION"
+          
+          # Validate version format
+          if ! echo "$VERSION" | grep -qE "^[0-9]+\.[0-9]+\.[0-9]+$"; then
+            echo "::error::Invalid version format: $VERSION"
+            exit 1
+          fi
           
           IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
-          MAJOR=${MAJOR:-0}
-          MINOR=${MINOR:-0}
-          PATCH=${PATCH:-0}
+          
+          echo "Parsed: MAJOR=$MAJOR, MINOR=$MINOR, PATCH=$PATCH"
           
           case "${{ steps.bump.outputs.type }}" in
             major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
@@ -121,10 +138,8 @@ jobs:
         run: |
           NEW_VERSION="${{ steps.new.outputs.version }}"
           
-          # Update version.txt (overwrite whatever came from feature branch)
           echo "$NEW_VERSION" > version.txt
           
-          # Update platformVersion in build.gradle
           sed -i "s/platformVersion = \"[0-9.]*\"/platformVersion = \"$NEW_VERSION\"/" myapp/app/build.gradle
           
           echo "Updated version.txt:"
@@ -156,7 +171,7 @@ jobs:
           
           echo "✅ Version bumped: $OLD_VERSION → $NEW_VERSION"
 
-  # Always passes for direct push (local hooks already validated)
+  # Always passes for direct push
   validate-push:
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
