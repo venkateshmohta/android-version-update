@@ -1,68 +1,104 @@
-name: Auto Version Bump
+name: Version Check and Bump
 
 on:
   pull_request:
-    types: [closed]
+    types: [opened, edited, synchronize, reopened, closed]
+    branches: [main, master]
+  push:
     branches: [main, master]
 
 jobs:
-  bump-version:
-    if: github.event.pull_request.merged == true
+  # Validates keyword exists on PR
+  validate-pr:
+    if: github.event_name == 'pull_request' && github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for version keyword
+        run: |
+          PR_TITLE="${{ github.event.pull_request.title }}"
+          
+          git fetch origin ${{ github.base_ref }}
+          COMMITS=$(git log origin/${{ github.base_ref }}..HEAD --pretty=format:"%s" 2>/dev/null || echo "")
+          
+          ALL_TEXT="$PR_TITLE $COMMITS"
+          
+          echo "Checking: $ALL_TEXT"
+          
+          if echo "$ALL_TEXT" | grep -qiE "release:(major|minor|patch)"; then
+            echo "✅ Version keyword found"
+          else
+            echo "::error::❌ No version keyword found (release:major, release:minor, or release:patch)"
+            exit 1
+          fi
+
+  # Bumps version AFTER PR merge
+  bump-on-pr-merge:
+    if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    
     steps:
-      - name: Checkout repository
+      - name: Get version from main BEFORE merge
+        id: main-version
+        run: |
+          # Fetch version.txt directly from main branch BEFORE this merge
+          VERSION=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/contents/version.txt?ref=${{ github.event.pull_request.base.sha }}" \
+            | jq -r '.content' | base64 -d | tr -d ' \r\n')
+          
+          echo "Main branch version (before merge): $VERSION"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Checkout main branch (after merge)
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          ref: ${{ github.event.pull_request.base.ref }}
+          ref: main
           fetch-depth: 0
 
-      - name: Pull latest
-        run: |
-          git pull origin ${{ github.event.pull_request.base.ref }}
-
-      - name: Get PR info
-        id: pr
-        run: |
-          PR_TITLE="${{ github.event.pull_request.title }}"
-          COMMITS=$(git log --pretty=format:"%s" ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }} 2>/dev/null || echo "")
-          
-          ALL_TEXT="$PR_TITLE $COMMITS"
-          echo "all_text=$ALL_TEXT" >> $GITHUB_OUTPUT
-
-      - name: Determine bump type
+      - name: Get bump type from PR
         id: bump
         run: |
-          ALL_TEXT="${{ steps.pr.outputs.all_text }}"
+          PR_TITLE="${{ github.event.pull_request.title }}"
+          PR_BODY="${{ github.event.pull_request.body }}"
+          
+          # Fetch PR commits via API
+          PR_COMMITS=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/commits" \
+            | jq -r '.[].commit.message' | tr '\n' ' ')
+          
+          ALL_TEXT="$PR_TITLE $PR_BODY $PR_COMMITS"
+          
+          echo "PR Title: $PR_TITLE"
+          echo "PR Commits: $PR_COMMITS"
           
           if echo "$ALL_TEXT" | grep -qi "release:major"; then
             echo "type=major" >> $GITHUB_OUTPUT
-            echo "found=true" >> $GITHUB_OUTPUT
+            echo "✅ MAJOR bump"
           elif echo "$ALL_TEXT" | grep -qi "release:minor"; then
             echo "type=minor" >> $GITHUB_OUTPUT
-            echo "found=true" >> $GITHUB_OUTPUT
+            echo "✅ MINOR bump"
           elif echo "$ALL_TEXT" | grep -qi "release:patch"; then
             echo "type=patch" >> $GITHUB_OUTPUT
-            echo "found=true" >> $GITHUB_OUTPUT
+            echo "✅ PATCH bump"
           else
-            echo "found=false" >> $GITHUB_OUTPUT
+            echo "type=none" >> $GITHUB_OUTPUT
+            echo "⚠️ No bump type found"
           fi
 
-      - name: Get current version
-        if: steps.bump.outputs.found == 'true'
-        id: current
-        run: |
-          VERSION=$(sed -n '1p' version.txt | tr -d ' \r\n')
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-
       - name: Calculate new version
-        if: steps.bump.outputs.found == 'true'
+        if: steps.bump.outputs.type != 'none'
         id: new
         run: |
-          VERSION="${{ steps.current.outputs.version }}"
+          # Use version from main BEFORE merge (not the overwritten one)
+          VERSION="${{ steps.main-version.outputs.version }}"
+          
+          echo "Starting from version: $VERSION"
           
           IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
           MAJOR=${MAJOR:-0}
@@ -75,23 +111,63 @@ jobs:
             patch) PATCH=$((PATCH + 1)) ;;
           esac
           
-          echo "version=$MAJOR.$MINOR.$PATCH" >> $GITHUB_OUTPUT
+          NEW_VERSION="$MAJOR.$MINOR.$PATCH"
+          
+          echo "New version: $NEW_VERSION"
+          echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
 
       - name: Update version files
-        if: steps.bump.outputs.found == 'true'
+        if: steps.bump.outputs.type != 'none'
         run: |
-          echo "${{ steps.new.outputs.version }}" > version.txt
-          sed -i "s/platformVersion = \"[0-9.]*\"/platformVersion = \"${{ steps.new.outputs.version }}\"/" myapp/app/build.gradle
+          NEW_VERSION="${{ steps.new.outputs.version }}"
+          
+          # Update version.txt (overwrite whatever came from feature branch)
+          echo "$NEW_VERSION" > version.txt
+          
+          # Update platformVersion in build.gradle
+          sed -i "s/platformVersion = \"[0-9.]*\"/platformVersion = \"$NEW_VERSION\"/" app/build.gradle
+          
+          echo "Updated version.txt:"
+          cat version.txt
+          
+          echo ""
+          echo "Updated platformVersion:"
+          grep "platformVersion" app/build.gradle
 
       - name: Commit and push
-        if: steps.bump.outputs.found == 'true'
+        if: steps.bump.outputs.type != 'none'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           
-          git add version.txt myapp/app/build.gradle
+          git add version.txt app/build.gradle
           
-          if ! git diff --staged --quiet; then
-            git commit -m "chore: bump version ${{ steps.current.outputs.version }} → ${{ steps.new.outputs.version }} (${{ steps.bump.outputs.type }}) [skip ci]"
-            git push origin ${{ github.event.pull_request.base.ref }}
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+            exit 0
           fi
+          
+          OLD_VERSION="${{ steps.main-version.outputs.version }}"
+          NEW_VERSION="${{ steps.new.outputs.version }}"
+          BUMP_TYPE="${{ steps.bump.outputs.type }}"
+          
+          git commit -m "chore: bump version $OLD_VERSION → $NEW_VERSION ($BUMP_TYPE) [skip ci]"
+          git push origin main
+          
+          echo "✅ Version bumped: $OLD_VERSION → $NEW_VERSION"
+
+  # Always passes for direct push (local hooks already validated)
+  validate-push:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate push
+        run: |
+          COMMIT_MSG="${{ github.event.head_commit.message }}"
+          
+          if echo "$COMMIT_MSG" | grep -q "\[skip ci\]"; then
+            echo "✅ Version bump commit - skipping"
+            exit 0
+          fi
+          
+          echo "✅ Direct push validated by local hooks"
