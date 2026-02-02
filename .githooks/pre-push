@@ -1,0 +1,75 @@
+#!/bin/bash
+
+# ============================================
+# Pre-Push Hook - Android Version Bump
+# ============================================
+
+PROJECT_ROOT="$(git rev-parse --show-toplevel)"
+
+current_branch=$(git rev-parse --abbrev-ref HEAD)
+
+echo ""
+echo "🔍 Pushing to branch: $current_branch"
+
+# Only run on main/master
+if [ "$current_branch" != "main" ] && [ "$current_branch" != "master" ]; then
+  echo "✅ Not pushing to main, skipping version bump"
+  exit 0
+fi
+
+commit_msg=$(git log -1 --pretty=%B)
+
+# Skip version bump commits
+if echo "$commit_msg" | grep -q "\[skip ci\]"; then
+  echo "✅ Version bump commit, skipping"
+  exit 0
+fi
+
+echo "📝 Last commit: $commit_msg"
+
+# Determine bump type
+bump_type=""
+
+if echo "$commit_msg" | grep -qi "release:major"; then
+  bump_type="major"
+elif echo "$commit_msg" | grep -qi "release:minor"; then
+  bump_type="minor"
+elif echo "$commit_msg" | grep -qi "release:patch"; then
+  bump_type="patch"
+fi
+
+if [ -z "$bump_type" ]; then
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "❌ PUSH BLOCKED"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  echo "No version keyword found. Please amend your commit:"
+  echo "  git commit --amend -m \"release:patch your message\""
+  echo ""
+  exit 1
+fi
+
+echo "📦 Bump type: $bump_type"
+
+# Run version bump
+"$PROJECT_ROOT/scripts/version-bump.sh" "$bump_type"
+
+if [ $? -ne 0 ]; then
+  echo "❌ Version bump failed"
+  exit 1
+fi
+
+# Stage files
+git add "$PROJECT_ROOT/version.txt"
+git add "$PROJECT_ROOT/app/build.gradle"
+
+if git diff --staged --quiet; then
+  echo "✅ No version changes to commit"
+  exit 0
+fi
+
+git commit --amend --no-edit --no-verify
+
+echo "✅ Version updated and committed"
+exit 0
