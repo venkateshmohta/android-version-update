@@ -166,7 +166,7 @@ jobs:
           NEW_VERSION="${{ steps.new.outputs.version }}"
           BUMP_TYPE="${{ steps.bump.outputs.type }}"
           
-          git commit -m "chore: bump version $OLD_VERSION → $NEW_VERSION ($BUMP_TYPE) [skip ci]"
+          git commit -m "Auto: bump version $OLD_VERSION → $NEW_VERSION ($BUMP_TYPE)"
           git push origin master
           
           echo "✅ Version bumped: $OLD_VERSION → $NEW_VERSION"
