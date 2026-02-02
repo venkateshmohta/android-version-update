@@ -1,6 +1,2 @@
-<<<<<<< HEAD
-Hello World
-=======
 Hello World
 New World
->>>>>>> test1
