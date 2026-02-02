@@ -32,7 +32,7 @@ android {
         versionCode 5
         versionName "0.1.2"
         multiDexEnabled = true
-        platformVersion = "3.0.0"
+        platformVersion = "5.0.0"
     }
 
     buildTypes {
