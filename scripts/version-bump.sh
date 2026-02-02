@@ -8,8 +8,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
 # File paths
-VERSION_FILE="$PROJECT_ROOT/version.txt"
-GRADLE_FILE="$PROJECT_ROOT/app/build.gradle"
+VERSION_FILE="$PROJECT_ROOT/myapp/version.txt"
+GRADLE_FILE="$PROJECT_ROOT/myapp/app/build.gradle"
 
 # Get bump type
 BUMP_TYPE="$1"

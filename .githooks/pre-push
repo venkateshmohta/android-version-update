@@ -61,8 +61,8 @@ if [ $? -ne 0 ]; then
 fi
 
 # Stage files
-git add "$PROJECT_ROOT/version.txt"
-git add "$PROJECT_ROOT/app/build.gradle"
+git add "$PROJECT_ROOT/myapp/version.txt"
+git add "$PROJECT_ROOT/myapp/app/build.gradle"
 
 if git diff --staged --quiet; then
   echo "✅ No version changes to commit"
