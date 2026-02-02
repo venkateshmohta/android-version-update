@@ -7,7 +7,6 @@ on:
 
 jobs:
   bump-version:
-    # Only run if PR was merged (not just closed)
     if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     permissions:
@@ -21,19 +20,17 @@ jobs:
           ref: ${{ github.event.pull_request.base.ref }}
           fetch-depth: 0
 
+      - name: Pull latest
+        run: |
+          git pull origin ${{ github.event.pull_request.base.ref }}
+
       - name: Get PR info
         id: pr
         run: |
           PR_TITLE="${{ github.event.pull_request.title }}"
-          PR_BODY="${{ github.event.pull_request.body }}"
-          
-          # Get all commit messages from the PR
           COMMITS=$(git log --pretty=format:"%s" ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }} 2>/dev/null || echo "")
           
-          ALL_TEXT="$PR_TITLE $PR_BODY $COMMITS"
-          
-          echo "PR Title: $PR_TITLE"
-          echo "Commits: $COMMITS"
+          ALL_TEXT="$PR_TITLE $COMMITS"
           echo "all_text=$ALL_TEXT" >> $GITHUB_OUTPUT
 
       - name: Determine bump type
@@ -44,29 +41,21 @@ jobs:
           if echo "$ALL_TEXT" | grep -qi "release:major"; then
             echo "type=major" >> $GITHUB_OUTPUT
             echo "found=true" >> $GITHUB_OUTPUT
-            echo "✅ MAJOR version bump"
           elif echo "$ALL_TEXT" | grep -qi "release:minor"; then
             echo "type=minor" >> $GITHUB_OUTPUT
             echo "found=true" >> $GITHUB_OUTPUT
-            echo "✅ MINOR version bump"
           elif echo "$ALL_TEXT" | grep -qi "release:patch"; then
             echo "type=patch" >> $GITHUB_OUTPUT
             echo "found=true" >> $GITHUB_OUTPUT
-            echo "✅ PATCH version bump"
           else
             echo "found=false" >> $GITHUB_OUTPUT
-            echo "⚠️ No version keyword found"
           fi
 
       - name: Get current version
         if: steps.bump.outputs.found == 'true'
         id: current
         run: |
-          # Pull latest changes first
-          git pull origin ${{ github.event.pull_request.base.ref }}
-          
           VERSION=$(sed -n '1p' version.txt | tr -d ' \r\n')
-          echo "Current version: $VERSION"
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Calculate new version
@@ -86,31 +75,13 @@ jobs:
             patch) PATCH=$((PATCH + 1)) ;;
           esac
           
-          NEW_VERSION="$MAJOR.$MINOR.$PATCH"
-          echo "New version: $NEW_VERSION"
-          echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "version=$MAJOR.$MINOR.$PATCH" >> $GITHUB_OUTPUT
 
       - name: Update version files
         if: steps.bump.outputs.found == 'true'
         run: |
-          NEW_VERSION="${{ steps.new.outputs.version }}"
-          
-          # Update version.txt
-          echo "$NEW_VERSION" > version.txt
-          
-          # Update platformVersion in build.gradle
-          sed -i "s/platformVersion = \"[0-9.]*\"/platformVersion = \"$NEW_VERSION\"/" myapp/app/build.gradle
-          
-          echo "✅ Updated version.txt and build.gradle"
-          echo "New version: $NEW_VERSION"
-          
-          # Verify changes
-          echo ""
-          echo "version.txt content:"
-          cat version.txt
-          echo ""
-          echo "platformVersion in build.gradle:"
-          grep "platformVersion" myapp/app/build.gradle
+          echo "${{ steps.new.outputs.version }}" > version.txt
+          sed -i "s/platformVersion = \"[0-9.]*\"/platformVersion = \"${{ steps.new.outputs.version }}\"/" myapp/app/build.gradle
 
       - name: Commit and push
         if: steps.bump.outputs.found == 'true'
@@ -120,12 +91,7 @@ jobs:
           
           git add version.txt myapp/app/build.gradle
           
-          if git diff --staged --quiet; then
-            echo "No changes to commit"
-            exit 0
+          if ! git diff --staged --quiet; then
+            git commit -m "chore: bump version ${{ steps.current.outputs.version }} → ${{ steps.new.outputs.version }} (${{ steps.bump.outputs.type }}) [skip ci]"
+            git push origin ${{ github.event.pull_request.base.ref }}
           fi
-          
-          git commit -m "chore: bump version ${{ steps.current.outputs.version }} → ${{ steps.new.outputs.version }} (${{ steps.bump.outputs.type }}) [skip ci]"
-          git push origin ${{ github.event.pull_request.base.ref }}
-          
-          echo "✅ Version bump pushed to ${{ github.event.pull_request.base.ref }}"
