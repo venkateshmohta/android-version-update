@@ -32,7 +32,7 @@ android {
         versionCode 1
         versionName "1.0"
         multiDexEnabled = true
-        platformVersion = "1.0.0"
+        platformVersion = "1.1.0"
     }
 
     buildTypes {

@@ -81,9 +81,9 @@ jobs:
           echo "${{ steps.new.outputs.code }}" >> version.txt
           
           # Update build.gradle
-          sed -i "s/versionCode [0-9]*/versionCode ${{ steps.new.outputs.code }}/" app/build.gradle
-          sed -i "s/versionName \"[0-9.]*\"/versionName \"${{ steps.new.outputs.version }}\"/" app/build.gradle
-          sed -i "s/platformVersion = \"[0-9.]*\"/platformVersion = \"${{ steps.new.outputs.version }}\"/" app/build.gradle
+          sed -i "s/versionCode [0-9]*/versionCode ${{ steps.new.outputs.code }}/" myapp/app/build.gradle
+          sed -i "s/versionName \"[0-9.]*\"/versionName \"${{ steps.new.outputs.version }}\"/" myapp/app/build.gradle
+          sed -i "s/platformVersion = \"[0-9.]*\"/platformVersion = \"${{ steps.new.outputs.version }}\"/" myapp/app/build.gradle
 
       - name: Commit and push
         if: steps.bump.outputs.found == 'true'
@@ -91,7 +91,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           
-          git add version.txt app/build.gradle
+          git add version.txt myapp/app/build.gradle
           
           if ! git diff --staged --quiet; then
             git commit -m "chore: bump version ${{ steps.current.outputs.version }} → ${{ steps.new.outputs.version }} (${{ steps.bump.outputs.type }}) [skip ci]"
