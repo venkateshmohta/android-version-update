@@ -7,7 +7,6 @@ on:
 
 jobs:
   check-version-keyword:
-    # Only run for actual PRs (not local merges)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -17,25 +16,46 @@ jobs:
 
       - name: Check for version keyword
         run: |
+          PR_TITLE="${{ github.event.pull_request.title }}"
+          PR_BODY="${{ github.event.pull_request.body }}"
+          
+          # Fetch base branch
           git fetch origin ${{ github.base_ref }}
           
+          # Get commits in PR
           COMMITS=$(git log origin/${{ github.base_ref }}..HEAD --pretty=format:"%s" 2>/dev/null || echo "")
-          PR_TITLE="${{ github.event.pull_request.title }}"
           
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo "PR Title: $PR_TITLE"
-          echo "Commits: $COMMITS"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "Commits:"
+          echo "$COMMITS"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           
-          ALL_TEXT="$PR_TITLE $COMMITS"
+          ALL_TEXT="$PR_TITLE $PR_BODY $COMMITS"
           
           HAS_MAJOR=$(echo "$ALL_TEXT" | grep -ci "release:major" || true)
           HAS_MINOR=$(echo "$ALL_TEXT" | grep -ci "release:minor" || true)
           HAS_PATCH=$(echo "$ALL_TEXT" | grep -ci "release:patch" || true)
           
+          echo ""
+          echo "Keywords found:"
+          echo "  release:major = $HAS_MAJOR"
+          echo "  release:minor = $HAS_MINOR"
+          echo "  release:patch = $HAS_PATCH"
+          
           TOTAL=$((HAS_MAJOR + HAS_MINOR + HAS_PATCH))
           
           if [ "$TOTAL" -eq 0 ]; then
-            echo "::error::❌ No version keyword found (release:major, release:minor, or release:patch)"
+            echo ""
+            echo "::error::❌ No version keyword found"
+            echo ""
+            echo "Add ONE of these to PR title, body, or commit message:"
+            echo "  • release:major  → Sprint release (x.0.0)"
+            echo "  • release:minor  → Feature release (0.x.0)"
+            echo "  • release:patch  → Bug fix (0.0.x)"
             exit 1
           fi
           
-          echo "✅ Version keyword found"
+          echo ""
+          echo "✅ Version keyword found - ready to merge!"
