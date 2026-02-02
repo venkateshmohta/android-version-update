@@ -29,10 +29,10 @@ android {
         applicationId "com.android.example.appsearchsample"
         minSdkVersion 14
         targetSdkVersion 31
-        versionCode 3
-        versionName "0.1.0"
+        versionCode 4
+        versionName "0.1.1"
         multiDexEnabled = true
-        platformVersion = "1.1.1"
+        platformVersion = "0.1.1"
     }
 
     buildTypes {
